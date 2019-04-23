@@ -1,5 +1,8 @@
 include "config.pxi"
 import os
+import sys
+
+from cpython cimport PyCapsule_GetPointer
 
 cdef extern from 'dlfcn.h' nogil:
     void* dlopen(const char *filename, int flag)
@@ -23,15 +26,17 @@ cdef extern from "jni.h":
     int JNI_VERSION_1_6
     int JNI_OK
     jboolean JNI_FALSE
+    
     ctypedef struct JavaVMInitArgs:
         jint version
         jint nOptions
         jboolean ignoreUnrecognized
         JavaVMOption *options
+        
     ctypedef struct JavaVMOption:
         char *optionString
         void *extraInfo
-
+        
 cdef JNIEnv *_platform_default_env = NULL
 
 cdef void create_jnienv() except *:
@@ -41,7 +46,18 @@ cdef void create_jnienv() except *:
     cdef int ret
     cdef bytes py_bytes
     import jnius_config
+    
+    if hasattr(sys, 'JVM'):
+        jvm = <JavaVM *> PyCapsule_GetPointer(sys.JVM, "JVM")
+        ret = jvm[0].AttachCurrentThread(<JavaVM*> jvm, &_platform_default_env, NULL)
+        if ret != JNI_OK:
+            raise SystemError("JVM failed to start: {0}".format(ret))
 
+        jnius_config.vm_running = True
+        return
+    elif not JNIUS_LIB_SUFFIX:
+        raise SystemError("Pyjnius built without support of CreateJavaVM")
+                
     JAVA_HOME = os.environ['JAVA_HOME']
     if JAVA_HOME is None or JAVA_HOME == '':
         raise SystemError("JAVA_HOME is not set.")

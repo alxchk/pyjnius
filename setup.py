@@ -13,7 +13,7 @@ except ImportError:
     import subprocess
 import os
 from os import environ
-from os.path import dirname, join, exists, realpath
+from os.path import dirname, join, exists, realpath, abspath
 import sys
 from platform import machine
 from setup_sdist import SETUP_KWARGS
@@ -42,6 +42,7 @@ FILES = [
     'jnius_jvm_android.pxi',
     'jnius_jvm_desktop.pxi',
     'jnius_jvm_dlopen.pxi',
+    'jnius_jvm_embedded.pxi',
     'jnius_localref.pxi',
     'jnius.pyx',
     'jnius_utils.pxi',
@@ -59,6 +60,8 @@ PLATFORM = sys.platform
 NDKPLATFORM = getenv('NDKPLATFORM')
 if NDKPLATFORM is not None and getenv('LIBLINK'):
     PLATFORM = 'android'
+
+Precompiled_NativeInvocationHandler = None
 
 # detect cython
 try:
@@ -97,7 +100,17 @@ def compile_native_invocation_handler(*possible_homes):
     ])
 
 
-if PLATFORM == 'android':
+if environ.get('NO_JAVA', False):
+    # Do not compile NativeInvocationHandler
+    INCLUDE_DIRS.append(abspath(join(dirname(__file__), 'precompiled')))
+    Precompiled_NativeInvocationHandler = 'NativeInvocationHandler.class.h'
+
+    parts = list(FILES)
+    for part in parts:
+        if part.startswith('jnius_jvm_') and not part.startswith('jnius_jvm_embedded'):
+            FILES.remove(part)
+
+elif PLATFORM == 'android':
     # for android, we use SDL...
     LIBRARIES = ['sdl', 'log']
     LIBRARY_DIRS = ['libs/' + getenv('ARCH')]
@@ -254,6 +267,8 @@ with open(join(dirname(__file__), 'jnius', 'config.pxi'), 'w') as fd:
         fd.write('DEF JNIUS_PYTHON3 = False\n\n')
     if LIB_LOCATION is not None:
         fd.write('DEF JNIUS_LIB_SUFFIX = {0!r}\n\n'.format(LIB_LOCATION))
+    else:
+        fd.write('DEF JNIUS_LIB_SUFFIX = False\n\n')
 
 # pop setup.py from included files in the installed package
 SETUP_KWARGS['py_modules'].remove('setup')

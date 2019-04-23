@@ -99,7 +99,9 @@ include "jnius_compat.pxi"
 include "jni.pxi"
 include "config.pxi"
 
-IF JNIUS_PLATFORM == "android":
+IF JNIUS_LIB_SUFFIX is False:
+    include "jnius_jvm_embedded.pxi"
+ELIF JNIUS_PLATFORM == "android":
     include "jnius_jvm_android.pxi"
 ELIF JNIUS_PLATFORM == "win32":
     include "jnius_jvm_desktop.pxi"
