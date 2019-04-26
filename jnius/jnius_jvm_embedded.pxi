@@ -24,8 +24,6 @@ cdef void load_NativeInvocationHandler(JNIEnv *env):
     if first_time == 0:
         return
 
-    _jvm.apply_preferred_classloader()
-
     context_class_loader_capsule = _jvm.get_preferred_classloader()
     context_class_loader_ptr = <jobject> PyCapsule_GetPointer(
         context_class_loader_capsule, "PreferredClassLoader")
