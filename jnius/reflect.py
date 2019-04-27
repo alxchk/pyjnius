@@ -17,7 +17,7 @@ class Class(with_metaclass(MetaJavaClass, JavaClass)):
 
     desiredAssertionStatus = JavaMethod('()Z')
     forName = JavaMultipleMethod([
-        ('(Ljava/lang/String,Z,Ljava/lang/ClassLoader;)Ljava/langClass;', True, False),
+        ('(Ljava/lang/StringZLjava/lang/ClassLoader;)Ljava/lang/Class;', True, False),
         ('(Ljava/lang/String;)Ljava/lang/Class;', True, False), ])
     getClassLoader = JavaMethod('()Ljava/lang/ClassLoader;')
     getClasses = JavaMethod('()[Ljava/lang/Class;')
