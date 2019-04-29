@@ -632,7 +632,7 @@ cdef jobject convert_pyarray_to_java(JNIEnv *j_env, definition, pyarray) except 
 
     elif definition[0] == 'L':
         defstr = str_for_c(definition[1:-1])
-        j_class = j_env[0].FindClass(j_env, <bytes>defstr)
+        j_class = jnius_find_class(j_env, <bytes>defstr)
 
         if j_class == NULL:
             raise JavaException(

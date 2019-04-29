@@ -6,7 +6,7 @@ cdef extern from "jni.h":
 
 import jvm as _jvm
 
-from cpython cimport PyCapsule_GetPointer
+from cpython cimport PyCapsule_GetPointer, PyCapsule_New
 
 cdef first_time = 1
 
@@ -24,7 +24,9 @@ cdef void load_NativeInvocationHandler(JNIEnv *env):
     if first_time == 0:
         return
 
-    context_class_loader_capsule = _jvm.get_preferred_classloader()
+    context_class_loader_capsule = _jvm.get_preferred_classloader(
+        PyCapsule_New(env, "JNIEnv", NULL)
+    )
     context_class_loader_ptr = <jobject> PyCapsule_GetPointer(
         context_class_loader_capsule, "PreferredClassLoader")
 
@@ -65,3 +67,12 @@ cdef JNIEnv *get_platform_jnienv() except NULL:
     jnius_config.vm_running = True
 
     return platform_env
+
+
+cdef jclass jnius_find_class(JNIEnv *j_env, bytes name):
+    class_capsule = _jvm.find_class(
+        PyCapsule_New(j_env, "JNIEnv", NULL), name)
+    if class_capsule is None:
+        return NULL
+
+    return <jclass> PyCapsule_GetPointer(class_capsule, "Class")

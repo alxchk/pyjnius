@@ -37,6 +37,7 @@ FILES = [
     'jni.pxi',
     'jnius_compat.pxi',
     'jnius_conversion.pxi',
+    'jnius_find_class.pxi',
     'jnius_export_class.pxi',
     'jnius_export_func.pxi',
     'jnius_jvm_android.pxi',
@@ -104,6 +105,8 @@ if environ.get('NO_JAVA', False):
     # Do not compile NativeInvocationHandler
     INCLUDE_DIRS.append(abspath(join(dirname(__file__), 'precompiled')))
     Precompiled_NativeInvocationHandler = 'NativeInvocationHandler.class.h'
+
+    FILES.remove('jnius_find_class.pxi')
 
     parts = list(FILES)
     for part in parts:

@@ -20,7 +20,7 @@ def find_javaclass(namestr):
     cdef jclass jc
     cdef JNIEnv *j_env = get_jnienv()
 
-    jc = j_env[0].FindClass(j_env, name)
+    jc = jnius_find_class(j_env, name)
     if jc == NULL:
         j_env[0].ExceptionClear(j_env)
         raise JavaException('Class not found {0!r}'.format(name))

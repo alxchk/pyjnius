@@ -133,7 +133,7 @@ class MetaJavaClass(MetaJavaBase):
 
         if NULL == obj:
             for interface in getattr(value, '__javainterfaces__', []):
-                obj = j_env[0].FindClass(j_env, str_for_c(interface))
+                obj = jnius_find_class(j_env, str_for_c(interface))
                 if obj == NULL:
                     j_env[0].ExceptionClear(j_env)
                 elif 0 != j_env[0].IsAssignableFrom(j_env, obj, me.j_cls):
@@ -164,11 +164,11 @@ class MetaJavaClass(MetaJavaBase):
         cdef JNIEnv *j_env = get_jnienv()
 
         if __javainterfaces__ and __javabaseclass__:
-            baseclass = j_env[0].FindClass(j_env, <char*>__javabaseclass__)
+            baseclass = jnius_find_class(j_env, <char*>__javabaseclass__)
             interfaces = <jclass *>malloc(sizeof(jclass) * len(__javainterfaces__))
 
             for n, i in enumerate(__javainterfaces__):
-                interfaces[n] = j_env[0].FindClass(j_env, <char*>i)
+                interfaces[n] = jnius_find_class(j_env, <char*>i)
 
             getProxyClass = j_env[0].GetStaticMethodID(
                 j_env, baseclass, "getProxyClass",
@@ -193,8 +193,7 @@ class MetaJavaClass(MetaJavaBase):
                         ' {0}'.format(__javaclass__))
         else:
             class_name = str_for_c(__javaclass__)
-            jcs.j_cls = j_env[0].FindClass(j_env,
-                    <char *>class_name)
+            jcs.j_cls = jnius_find_class(j_env, <char *>class_name)
             if jcs.j_cls == NULL:
                 raise JavaException('Unable to find the class'
                         ' {0}'.format(__javaclass__))
@@ -413,15 +412,18 @@ cdef class JavaField(object):
 
     cdef void set_resolve_info(self, JNIEnv *j_env, jclass j_cls,
             name, classname):
-        j_env = get_jnienv()
         self.name = name
         self.classname = classname
         self.j_cls = j_cls
 
     cdef void ensure_field(self) except *:
-        cdef JNIEnv *j_env = get_jnienv()
+        cdef JNIEnv *j_env = NULL
+
         if self.j_field != NULL:
             return
+
+        j_env = get_jnienv()
+
         if self.is_static:
             defstr = str_for_c(self.definition)
             self.j_field = j_env[0].GetStaticFieldID(
@@ -435,6 +437,9 @@ cdef class JavaField(object):
                 j_env, self.j_cls, <char *>namestr,
                 <char *>defstr
             )
+
+        check_exception(j_env)
+
         if self.j_field == NULL:
             raise JavaException(
                 'Unable to find the field {0}'.format(self.name)
@@ -444,11 +449,14 @@ cdef class JavaField(object):
         cdef jobject j_self
 
         self.ensure_field()
-        if obj is None:
+
+        if self.static or obj is None:
             return self.read_static_field()
 
         j_self = (<JavaClass?>obj).j_self.obj
-        return self.read_field(j_self)
+
+        result = self.read_field(j_self)
+        return result
 
     def __set__(self, obj, value):
         cdef jobject j_self
