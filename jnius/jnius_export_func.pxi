@@ -41,3 +41,43 @@ def find_javaclass(namestr):
     j_env[0].DeleteLocalRef(j_env, jc)
     return cls
 
+def to_jobject(definiton, pyobj, shared=True):
+    from .reflect import Object, get_signature
+
+    cdef jobject jobj
+    cdef JavaClass pjobj
+    cdef JNIEnv *j_env = get_jnienv()
+
+    signature = get_signature(definiton)
+    print('Convert with signature', signature, pyobj)
+
+    if signature == 'V':
+        return None
+
+    jobj = convert_python_to_jobject(
+        j_env, signature, pyobj)
+
+    if jobj == NULL:
+        j_env[0].ExceptionClear(j_env)
+        raise JavaException('Conversion is not possible')
+
+    pjobj = Object(noinstance=True)
+    pjobj.instanciate_from(create_local_ref(j_env, jobj))
+    return pjobj
+
+
+def define_class(name, data):
+    from .reflect import autoclass
+
+    cdef JNIEnv *j_env = get_jnienv()
+    cdef jbyte *jdata = data
+    cdef jobject jobj
+
+    name = name.replace('.', '/')
+    if name.startswith('L') and name.endswith(';'):
+        name = name[1:-1]
+
+    jobj = j_env[0].DefineClass(j_env, name, NULL, jdata, len(data))
+    check_exception(j_env)
+
+    return autoclass(name)

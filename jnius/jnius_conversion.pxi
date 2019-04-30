@@ -6,8 +6,78 @@ cdef jstringy_arg(argtype):
                        'Ljava/lang/CharSequence;',
                        'Ljava/lang/Object;')
 
+if PY_MAJOR_VERSION > 2:
+    long = int
+    basestring = str
+
 cdef well_known_class(klass):
     return klass != 'java/lang/Object' and klass.startswith('java/lang/')
+
+cdef jboolean as_boolean(value):
+    if value:
+        return 1
+    else:
+        return 0
+
+cdef jshort as_short(value):
+    r = int(value)
+    if r > 0xFFFF:
+        raise JavaException('Value too big to be a short')
+    return r
+
+cdef jlong as_long(value):
+    if PY_MAJOR_VERSION < 3:
+        return long(value)
+
+cdef jchar as_char(value):
+    if isinstance(value, basestring):
+        if len(value) > 0:
+            return ord(value[0]) & 0xFFFF
+        else:
+            return 0
+    else:
+        r = int(value)
+        if r > 0xFFFF:
+            raise JavaException('Symbol to big to be a char')
+        return int(value) & 0xFFFF
+
+cdef jchar as_byte(value):
+    if isinstance(value, basestring):
+        if len(value) > 0:
+            r = ord(value[0])
+            if r > 0xFF:
+                raise JavaException('Symbol to big to be a byte')
+            return  r
+        else:
+            return 0
+    else:
+        r = int(value)
+        if r > 0xFF:
+            raise JavaException('Symbol to big to be a byte')
+
+        return r
+
+if PY_MAJOR_VERSION < 3:
+    PY_TO_J_CONVERSIONS = {
+        int: 'I',
+        bool: 'Z',
+        long: 'J',
+        float: 'F',
+        unicode: 'Ljava/lang/String;',
+        bytes: 'Ljava/lang/String;',
+        basestring: 'Ljava/lang/String;',
+    }
+
+else:
+    PY_TO_J_CONVERSIONS = {
+        int: 'I',
+        bool: 'Z',
+        long: 'J',
+        float: 'F',
+        unicode: 'Ljava/lang/String;',
+        bytes: 'B',
+        str: 'Ljava/lang/String;',
+    }
 
 cdef void release_args(JNIEnv *j_env, tuple definition_args, jvalue *j_args, args) except *:
     # do the conversion from a Python object to Java from a Java definition
@@ -30,108 +100,120 @@ cdef void release_args(JNIEnv *j_env, tuple definition_args, jvalue *j_args, arg
                 pass
             j_env[0].DeleteLocalRef(j_env, j_args[index].l)
 
-cdef void populate_args(JNIEnv *j_env, tuple definition_args, jvalue *j_args, args) except *:
-    # do the conversion from a Python object to Java from a Java definition
+cdef jvalue pyarg_to_jvalue(JNIEnv *j_env, argtype, py_arg) except *:
     cdef JavaClassStorage jcs
     cdef JavaObject jo
     cdef JavaClass jc
     cdef PythonJavaClass pc
     cdef int index
 
+    cdef jvalue retval
+
+    if argtype == 'Z':
+        retval.z = py_arg
+    elif argtype == 'B':
+        retval.b = py_arg
+    elif argtype == 'C':
+        retval.c = ord(py_arg)
+    elif argtype == 'S':
+        retval.s = py_arg
+    elif argtype == 'I':
+        retval.i = py_arg
+    elif argtype == 'J':
+        retval.j = py_arg
+    elif argtype == 'F':
+        retval.f = py_arg
+    elif argtype == 'D':
+        retval.d = py_arg
+    elif argtype[0] == 'L':
+        if py_arg is None:
+            retval.l = NULL
+
+        # numeric types
+        elif isinstance(py_arg, (int, long)):
+            retval.l = convert_python_to_jobject(
+                j_env, 'Ljava/lang/Integer;', py_arg
+            )
+        elif isinstance(py_arg, float):
+            retval.l = convert_python_to_jobject(
+                j_env, 'Ljava/lang/Float;', py_arg
+            )
+
+        # string types
+        elif isinstance(py_arg, base_string) and jstringy_arg(argtype):
+            retval.l = convert_pystr_to_java(
+                j_env, to_unicode(py_arg)
+            )
+        elif isinstance(py_arg, JavaClass):
+            jc = py_arg
+            check_assignable_from(j_env, jc, argtype[1:-1])
+            retval.l = jc.j_self.obj
+
+        # objects
+        elif isinstance(py_arg, JavaObject):
+            jo = py_arg
+            retval.l = jo.obj
+        elif isinstance(py_arg, MetaJavaClass):
+            jcs = py_arg.__cls_storage
+            retval.l = jcs.j_cls
+        elif isinstance(py_arg, PythonJavaClass):
+            # from python class, get the proxy/python class
+            pc = py_arg
+            # get the java class
+            jc = pc.j_self
+            if jc is None:
+                pc._init_j_self_ptr()
+                jc = pc.j_self
+            # get the localref
+            retval.l = jc.j_self.obj
+
+        # implementation of Java class in Python (needs j_cls)
+        elif isinstance(py_arg, type):
+            jc = py_arg
+            retval.l = jc.j_cls
+
+        # array
+        elif isinstance(py_arg, (tuple, list)):
+            retval.l = convert_pyarray_to_java(j_env, argtype, py_arg)
+
+        else:
+            raise JavaException('Invalid python object for this '
+                    'argument. Want {0!r}, got {1!r}'.format(
+                        argtype[1:-1], py_arg))
+
+    elif argtype[0] == '[':
+        if py_arg is None:
+            retval.l = NULL
+            return retval
+
+        if isinstance(py_arg, basestring) and PY_MAJOR_VERSION < 3:
+            if argtype == '[B':
+                py_arg = map(ord, py_arg)
+            elif argtype == '[C':
+                py_arg = list(py_arg)
+
+        if isinstance(py_arg, str) and PY_MAJOR_VERSION >= 3 and argtype == '[C':
+            py_arg = list(py_arg)
+
+        if isinstance(py_arg, ByteArray) and argtype != '[B':
+            raise JavaException(
+                'Cannot use ByteArray for signature {}'.format(argtype))
+
+        if not isinstance(py_arg, (list, tuple, ByteArray, bytes, bytearray)):
+            raise JavaException('Expecting a python list/tuple, got '
+                    '{0!r}'.format(py_arg))
+
+        retval.l = convert_pyarray_to_java(
+                j_env, argtype[1:], py_arg)
+
+    return retval
+
+
+cdef void populate_args(JNIEnv *j_env, tuple definition_args, jvalue *j_args, args) except *:
+    # do the conversion from a Python object to Java from a Java definition
     for index, argtype in enumerate(definition_args):
         py_arg = args[index]
-        if argtype == 'Z':
-            j_args[index].z = py_arg
-        elif argtype == 'B':
-            j_args[index].b = py_arg
-        elif argtype == 'C':
-            j_args[index].c = ord(py_arg)
-        elif argtype == 'S':
-            j_args[index].s = py_arg
-        elif argtype == 'I':
-            j_args[index].i = py_arg
-        elif argtype == 'J':
-            j_args[index].j = py_arg
-        elif argtype == 'F':
-            j_args[index].f = py_arg
-        elif argtype == 'D':
-            j_args[index].d = py_arg
-        elif argtype[0] == 'L':
-            if py_arg is None:
-                j_args[index].l = NULL
-
-            # numeric types
-            elif isinstance(py_arg, (int, long)):
-                j_args[index].l = convert_python_to_jobject(
-                    j_env, 'Ljava/lang/Integer;', py_arg
-                )
-            elif isinstance(py_arg, float):
-                j_args[index].l = convert_python_to_jobject(
-                    j_env, 'Ljava/lang/Float;', py_arg
-                )
-
-            # string types
-            elif isinstance(py_arg, base_string) and jstringy_arg(argtype):
-                j_args[index].l = convert_pystr_to_java(
-                    j_env, to_unicode(py_arg)
-                )
-            elif isinstance(py_arg, JavaClass):
-                jc = py_arg
-                check_assignable_from(j_env, jc, argtype[1:-1])
-                j_args[index].l = jc.j_self.obj
-
-            # objects
-            elif isinstance(py_arg, JavaObject):
-                jo = py_arg
-                j_args[index].l = jo.obj
-            elif isinstance(py_arg, MetaJavaClass):
-                jcs = py_arg.__cls_storage
-                j_args[index].l = jcs.j_cls
-            elif isinstance(py_arg, PythonJavaClass):
-                # from python class, get the proxy/python class
-                pc = py_arg
-                # get the java class
-                jc = pc.j_self
-                if jc is None:
-                    pc._init_j_self_ptr()
-                    jc = pc.j_self
-                # get the localref
-                j_args[index].l = jc.j_self.obj
-
-            # implementation of Java class in Python (needs j_cls)
-            elif isinstance(py_arg, type):
-                jc = py_arg
-                j_args[index].l = jc.j_cls
-
-            # array
-            elif isinstance(py_arg, (tuple, list)):
-                j_args[index].l = convert_pyarray_to_java(j_env, argtype, py_arg)
-
-            else:
-                raise JavaException('Invalid python object for this '
-                        'argument. Want {0!r}, got {1!r}'.format(
-                            argtype[1:-1], py_arg))
-
-        elif argtype[0] == '[':
-            if py_arg is None:
-                j_args[index].l = NULL
-                continue
-            if isinstance(py_arg, basestring) and PY_MAJOR_VERSION < 3:
-                if argtype == '[B':
-                    py_arg = map(ord, py_arg)
-                elif argtype == '[C':
-                    py_arg = list(py_arg)
-            if isinstance(py_arg, str) and PY_MAJOR_VERSION >= 3 and argtype == '[C':
-                py_arg = list(py_arg)
-            if isinstance(py_arg, ByteArray) and argtype != '[B':
-                raise JavaException(
-                    'Cannot use ByteArray for signature {}'.format(argtype))
-            if not isinstance(py_arg, (list, tuple, ByteArray, bytes, bytearray)):
-                raise JavaException('Expecting a python list/tuple, got '
-                        '{0!r}'.format(py_arg))
-            j_args[index].l = convert_pyarray_to_java(
-                    j_env, argtype[1:], py_arg)
-
+        j_args[index] = pyarg_to_jvalue(j_env, argtype, py_arg)
 
 cdef convert_jobject_to_python(JNIEnv *j_env, definition, jobject j_object):
     # Convert a Java Object to a Python object, according to the definition.
@@ -191,7 +273,7 @@ cdef convert_jobject_to_python(JNIEnv *j_env, definition, jobject j_object):
     if r == 'java/lang/Boolean':
         retclass = j_env[0].GetObjectClass(j_env, j_object)
         retmeth = j_env[0].GetMethodID(j_env, retclass, 'booleanValue', '()Z')
-        return j_env[0].CallBooleanMethod(j_env, j_object, retmeth)
+        return bool(j_env[0].CallBooleanMethod(j_env, j_object, retmeth))
     if r == 'java/lang/Byte':
         retclass = j_env[0].GetObjectClass(j_env, j_object)
         retmeth = j_env[0].GetMethodID(j_env, retclass, 'byteValue', '()B')
@@ -199,7 +281,11 @@ cdef convert_jobject_to_python(JNIEnv *j_env, definition, jobject j_object):
     if r == 'java/lang/Character':
         retclass = j_env[0].GetObjectClass(j_env, j_object)
         retmeth = j_env[0].GetMethodID(j_env, retclass, 'charValue', '()C')
-        return ord(j_env[0].CallCharMethod(j_env, j_object, retmeth))
+        value = j_env[0].CallCharMethod(j_env, j_object, retmeth)
+        if PY_MAJOR_VERSION < 3:
+            return unichr(value)
+        else:
+            return chr(value)
 
     if r not in jclass_register:
         from reflect import Object, autoclass
@@ -370,6 +456,7 @@ cdef jobject convert_python_to_jobject(JNIEnv *j_env, definition, obj) except *:
 
     if definition[0] == 'V':
         return NULL
+
     elif definition[0] == 'L':
         if obj is None:
             return NULL
@@ -387,9 +474,16 @@ cdef jobject convert_python_to_jobject(JNIEnv *j_env, definition, obj) except *:
                     'Ljava/lang/Object;'):
             j_ret[0].i = int(obj)
             retclass = j_env[0].FindClass(j_env, 'java/lang/Integer')
+            check_exception(j_env)
+
             retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(I)V')
+            check_exception(j_env)
+
             retobject = j_env[0].NewObjectA(j_env, retclass, retmidinit, j_ret)
+            check_exception(j_env)
+
             return retobject
+
         elif isinstance(obj, float) and \
                 definition in (
                     'Ljava/lang/Float;',
@@ -397,8 +491,14 @@ cdef jobject convert_python_to_jobject(JNIEnv *j_env, definition, obj) except *:
                     'Ljava/lang/Object;'):
             j_ret[0].f = obj
             retclass = j_env[0].FindClass(j_env, 'java/lang/Float')
+            check_exception(j_env)
+
             retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(F)V')
+            check_exception(j_env)
+
             retobject = j_env[0].NewObjectA(j_env, retclass, retmidinit, j_ret)
+            check_exception(j_env)
+
             return retobject
 
         # implementation of Java class in Python (needs j_cls)
@@ -411,12 +511,15 @@ cdef jobject convert_python_to_jobject(JNIEnv *j_env, definition, obj) except *:
             jc = obj
             check_assignable_from(j_env, jc, definition[1:-1])
             return jc.j_self.obj
+
         elif isinstance(obj, JavaObject):
             jo = obj
             return jo.obj
+
         elif isinstance(obj, MetaJavaClass):
             jcs = obj.__cls_storage
             return jcs.j_cls
+
         elif isinstance(obj, PythonJavaClass):
             # from python class, get the proxy/python class
             pc = obj
@@ -438,73 +541,71 @@ cdef jobject convert_python_to_jobject(JNIEnv *j_env, definition, obj) except *:
                         definition[1:-1], obj))
 
     elif definition[0] == '[':
-        if PY_MAJOR_VERSION < 3:
-            conversions = {
-                int: 'I',
-                bool: 'Z',
-                long: 'J',
-                float: 'F',
-                unicode: 'Ljava/lang/String;',
-                bytes: 'Ljava/lang/String;'
-            }
-        else:
-            conversions = {
-                int: 'I',
-                bool: 'Z',
-                long: 'J',
-                float: 'F',
-                unicode: 'Ljava/lang/String;',
-                bytes: 'B'
-            }
         retclass = j_env[0].FindClass(j_env, 'java/lang/Object')
         retobject = j_env[0].NewObjectArray(j_env, len(obj), retclass, NULL)
         for index, item in enumerate(obj):
-            item_definition = conversions.get(type(item), definition[1:])
+            item_definition = PY_TO_J_CONVERSIONS.get(type(item), definition[1:])
             retsubobject = convert_python_to_jobject(
                     j_env, item_definition, item)
             j_env[0].SetObjectArrayElement(j_env, retobject, index,
                     retsubobject)
+            check_exception(j_env)
+
             j_env[0].DeleteLocalRef(j_env, retsubobject)
         return retobject
 
     elif definition == 'B':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Byte')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(B)V')
-        j_ret[0].b = obj
+        j_ret[0].b = as_byte(obj)
+
     elif definition == 'S':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Short')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(S)V')
-        j_ret[0].s = obj
+        j_ret[0].s = as_short(obj)
+
     elif definition == 'I':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Integer')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(I)V')
         j_ret[0].i = int(obj)
+
     elif definition == 'J':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Long')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(J)V')
-        j_ret[0].j = obj
+        j_ret[0].j = as_long(obj)
+
     elif definition == 'F':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Float')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(F)V')
-        j_ret[0].f = obj
+        j_ret[0].f = float(obj)
+
     elif definition == 'D':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Double')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(D)V')
-        j_ret[0].d = obj
+        j_ret[0].d = float(obj)
+
     elif definition == 'C':
-        retclass = j_env[0].FindClass(j_env, 'java/lang/Char')
+        retclass = j_env[0].FindClass(j_env, 'java/lang/Character')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(C)V')
-        j_ret[0].c = ord(obj)
+        j_ret[0].c = as_char(obj)
+
     elif definition == 'Z':
         retclass = j_env[0].FindClass(j_env, 'java/lang/Boolean')
         retmidinit = j_env[0].GetMethodID(j_env, retclass, '<init>', '(Z)V')
-        j_ret[0].z = 1 if obj else 0
-    else:
-        assert(0)
+        j_ret[0].z = as_boolean(obj)
 
-    assert(retclass != NULL)
+    else:
+        raise JavaException('Invalid defintion: {}'.format(definition))
+
+    if retclass == NULL or retmidinit == NULL:
+        check_exception(j_env)
+        raise JavaException(
+            'Conversion to {} is not possible'.format(definition))
+
     # XXX do we need a globalref or something ?
     retobject = j_env[0].NewObjectA(j_env, retclass, retmidinit, j_ret)
+    check_exception(j_env)
+
     return retobject
 
 cdef jstring convert_pystr_to_java(JNIEnv *j_env, unicode py_uni) except NULL:
@@ -548,24 +649,7 @@ cdef jobject convert_pyarray_to_java(JNIEnv *j_env, definition, pyarray) except 
     if definition == 'Ljava/lang/Object;' and len(pyarray) > 0:
         # then the method will accept any array type as param
         # let's be as precise as we can
-        if PY_MAJOR_VERSION < 3:
-            conversions = {
-                int: 'I',
-                bool: 'Z',
-                long: 'J',
-                float: 'F',
-                basestring: 'Ljava/lang/String;',
-            }
-        else:
-            conversions = {
-                int: 'I',
-                bool: 'Z',
-                long: 'J',
-                float: 'F',
-                bytes: 'B',
-                str: 'Ljava/lang/String;',
-            }
-        for _type, override in conversions.iteritems():
+        for _type, override in PY_TO_J_CONVERSIONS.iteritems():
             if isinstance(pyarray[0], _type):
                 definition = override
                 break

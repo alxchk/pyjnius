@@ -29,13 +29,13 @@ class Class(with_metaclass(MetaJavaClass, JavaClass)):
     getDeclaredConstructors = JavaMethod('()[Ljava/lang/reflect/Constructor;')
     getDeclaredField = JavaMethod('(Ljava/lang/String;)Ljava/lang/reflect/Field;')
     getDeclaredFields = JavaMethod('()[Ljava/lang/reflect/Field;')
-    getDeclaredMethod = JavaMethod('(Ljava/lang/String,[Ljava/lang/Class;)Ljava/lang/reflect/Method;')
+    getDeclaredMethod = JavaMethod('(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;')
     getDeclaredMethods = JavaMethod('()[Ljava/lang/reflect/Method;')
     getDeclaringClass = JavaMethod('()Ljava/lang/Class;')
     getField = JavaMethod('(Ljava/lang/String;)Ljava/lang/reflect/Field;')
     getFields = JavaMethod('()[Ljava/lang/reflect/Field;')
     getInterfaces = JavaMethod('()[Ljava/lang/Class;')
-    getMethod = JavaMethod('(Ljava/lang/String,[Ljava/lang/Class;)Ljava/lang/reflect/Method;')
+    getMethod = JavaMethod('(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;')
     getMethods = JavaMethod('()[Ljava/lang/reflect/Method;')
     getModifiers = JavaMethod('()[I')
     getName = JavaMethod('()Ljava/lang/String;')
@@ -92,7 +92,6 @@ class Method(with_metaclass(MetaJavaClass, JavaClass)):
     getDeclaringClass = JavaMethod('()Ljava/lang/Class;')
     getModifiers = JavaMethod('()I')
     getTypeParameters = JavaMethod('()[Ljava/lang/reflect/TypeVariable;')
-    getReturnType = JavaMethod('()Ljava/lang/Class;')
     getGenericReturnType = JavaMethod('()Ljava/lang/reflect/Type;')
     getSharedParameterTypes = JavaMethod('()[Ljava/lang/Class;')
     getSharedExceptionTypes = JavaMethod('()[Ljava/lang/Class;')
@@ -158,16 +157,27 @@ class Constructor(with_metaclass(MetaJavaClass, JavaClass)):
 
 
 def get_signature(cls_tp):
-    tp = cls_tp.getName()
+    tp = None
+
+    if isinstance(cls_tp, basestring):
+        tp = cls_tp
+
+    if not tp:
+        tp = cls_tp.getName()
+
     if tp[0] == '[':
         return tp.replace('.', '/')
+
     signatures = {
         'void': 'V', 'boolean': 'Z', 'byte': 'B',
         'char': 'C', 'short': 'S', 'int': 'I',
-        'long': 'J', 'float': 'F', 'double': 'D'}
+        'long': 'J', 'float': 'F', 'double': 'D'
+    }
+
     ret = signatures.get(tp)
     if ret:
         return ret
+
     # don't do it in recursive way for the moment,
     # error on the JNI/android: JNI ERROR (app bug): local reference table
     # overflow (max=512)

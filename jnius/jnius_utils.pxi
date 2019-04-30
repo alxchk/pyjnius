@@ -261,8 +261,6 @@ cdef lookup_java_object_name(JNIEnv *j_env, jobject j_obj):
     finally:
         j_env[0].DeleteLocalRef(j_env, o_cls)
 
-    return None
-
 
 cdef int calculate_score(sign_args, args, is_varargs=False) except *:
     cdef int index
