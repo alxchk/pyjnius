@@ -24,24 +24,15 @@ cdef void load_NativeInvocationHandler(JNIEnv *env):
     if first_time == 0:
         return
 
-    context_class_loader_capsule = _jvm.get_preferred_classloader(
-        PyCapsule_New(env, "JNIEnv", NULL)
-    )
-    context_class_loader_ptr = <jobject> PyCapsule_GetPointer(
-        context_class_loader_capsule, "PreferredClassLoader")
-
-    if context_class_loader_ptr == NULL:
-        raise SystemError("Preferred ClassLoader not found")
-
     first_time = 0
 
     # Init NativeInvocationHandler
-    if env[0].DefineClass(
+    env[0].DefineClass(
         env,
-        "org/jnius/NativeInvocationHandler", context_class_loader_ptr,
-            NativeInvocationHandler_bytes, NativeInvocationHandler_bytes_size) == NULL:
-        raise SystemError("Could not define class org/jnius/NativeInvocationHandler (size={})".format(
-            NativeInvocationHandler_bytes_size))
+        "org/jnius/NativeInvocationHandler", NULL,
+            NativeInvocationHandler_bytes, NativeInvocationHandler_bytes_size)
+
+    check_exception(env)
 
 
 cdef JNIEnv *get_platform_jnienv() except NULL:
