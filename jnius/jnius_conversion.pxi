@@ -1,7 +1,6 @@
 from cpython.version cimport PY_MAJOR_VERSION
 from cpython cimport PyUnicode_DecodeUTF16
 
-
 cdef jstringy_arg(argtype):
     return argtype in ('Ljava/lang/String;',
                        'Ljava/lang/CharSequence;',
@@ -203,17 +202,18 @@ cdef convert_jobject_to_python(JNIEnv *j_env, definition, jobject j_object):
         return ord(j_env[0].CallCharMethod(j_env, j_object, retmeth))
 
     if r not in jclass_register:
-        if r.startswith('$Proxy'):
-            # only for $Proxy on android, don't use autoclass. The dalvik vm is
-            # not able to give us introspection on that one (FindClass return
-            # NULL).
-            from .reflect import Object
-            ret_jc = Object(noinstance=True)
-        else:
-            from .reflect import autoclass
-            ret_jc = autoclass(r.replace('/', '.'))(noinstance=True)
+        from reflect import Object, autoclass
+
+        try:
+            reflected = autoclass(r.replace('/', '.'))
+        except JavaException:
+            # Not found, fallback to object
+            reflected = Object
+
+        ret_jc = reflected(noinstance=True)
     else:
         ret_jc = jclass_register[r](noinstance=True)
+
     ret_jc.instanciate_from(create_local_ref(j_env, j_object))
     return ret_jc
 
