@@ -11,7 +11,7 @@ cdef items_compat(d):
      if not PY2:
          return d.items()
      else:
-        return d.iteritems()                
+        return d.iteritems()
 
 cdef parse_definition(definition):
     # not a function, just a field
@@ -207,15 +207,61 @@ cdef void check_assignable_from(JNIEnv *env, JavaClass jc, signature) except *:
 
 
 cdef lookup_java_object_name(JNIEnv *j_env, jobject j_obj):
-    cdef jclass jcls = j_env[0].GetObjectClass(j_env, j_obj)
-    cdef jclass jcls2 = j_env[0].GetObjectClass(j_env, jcls)
-    cdef jmethodID jmeth = j_env[0].GetMethodID(j_env, jcls2, 'getName', '()Ljava/lang/String;')
-    cdef jobject js = j_env[0].CallObjectMethod(j_env, jcls, jmeth)
-    name = convert_jobject_to_python(j_env, 'Ljava/lang/String;', js)
-    j_env[0].DeleteLocalRef(j_env, js)
-    j_env[0].DeleteLocalRef(j_env, jcls)
-    j_env[0].DeleteLocalRef(j_env, jcls2)
-    return name.replace('.', '/')
+    cdef jclass o_cls
+    cdef jclass o_clscls
+    cdef jobject o_cls_obj
+    cdef jmethodID getClass
+    cdef jmethodID getName
+    cdef jobject js
+
+    o_cls = j_env[0].GetObjectClass(j_env, j_obj)
+    if o_cls == NULL:
+        raise JavaException('Not a java/lang/Object')
+
+    try:
+        getClass = j_env[0].GetMethodID(j_env, o_cls, 'getClass', '()Ljava/lang/Class;');
+        if getClass == NULL or j_env[0].ExceptionCheck(j_env):
+            raise JavaException('Failed to retrieve getClass method')
+
+        o_cls_obj = j_env[0].CallObjectMethod(j_env, j_obj, getClass);
+        if o_cls_obj == NULL or j_env[0].ExceptionCheck(j_env):
+            raise JavaException('Failed to retrieve Class of Object')
+
+        try:
+            o_clscls = j_env[0].GetObjectClass(j_env, o_cls_obj);
+            if o_clscls == NULL or j_env[0].ExceptionCheck(j_env):
+                raise JavaException('Failed to retrieve Class of Class')
+
+            try:
+                getName = j_env[0].GetMethodID(j_env, o_clscls, "getName", "()Ljava/lang/String;");
+                if getName == NULL or j_env[0].ExceptionCheck(j_env):
+                    raise JavaException('Failed to retrieve getName method')
+
+                js = j_env[0].CallObjectMethod(j_env, o_cls_obj, getName);
+                if js == NULL or j_env[0].ExceptionCheck(j_env):
+                    raise JavaException('Failed to retrieve name of Class')
+
+                try:
+                    name = convert_jobject_to_python(j_env, 'Ljava/lang/String;', js)
+                    return name.replace('.', '/')
+
+                finally:
+                    j_env[0].DeleteLocalRef(j_env, js)
+
+            finally:
+                j_env[0].DeleteLocalRef(j_env, o_clscls)
+
+        finally:
+            j_env[0].DeleteLocalRef(j_env, o_cls_obj)
+
+    except:
+        j_env[0].ExceptionClear(j_env)
+        raise
+
+    finally:
+        j_env[0].DeleteLocalRef(j_env, o_cls)
+
+    return None
 
 
 cdef int calculate_score(sign_args, args, is_varargs=False) except *:
