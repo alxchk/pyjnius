@@ -96,6 +96,32 @@ class Field(with_metaclass(MetaJavaClass, JavaClass)):
     toString = JavaMethod('()Ljava/lang/String;')
     getType = JavaMethod('()Ljava/lang/Class;')
     getModifiers = JavaMethod('()I')
+    setAccessible = JavaMethod('(Z)V')
+    checkCanSetAccessible = JavaMethod('(Ljava/lang/Class;)V')
+    getDeclaringClass = JavaMethod('()Ljava/lang/Class;')
+    isEnumConstant = JavaMethod('()Z')
+    isSynthetic = JavaMethod('()Z')
+    getGenericType = JavaMethod('()Ljava/lang/reflect/Type;')
+    equals = JavaMethod('(Ljava/lang/Object;)Z')
+    hashCode = JavaMethod('()I')
+    get = JavaMethod('(Ljava/lang/Object;)Ljava/lang/Object;')
+    getBoolean = JavaMethod('(Ljava/lang/Object;)Z')
+    getByte = JavaMethod('(Ljava/lang/Object;)B')
+    getChar = JavaMethod('(Ljava/lang/Object;)C')
+    getShort = JavaMethod('(Ljava/lang/Object;)S')
+    getInt = JavaMethod('(Ljava/lang/Object;)I')
+    getLong = JavaMethod('(Ljava/lang/Object;)J')
+    getFloat = JavaMethod('(Ljava/lang/Object;)F')
+    getDouble = JavaMethod('(Ljava/lang/Object;)D')
+    set = JavaMethod('(Ljava/lang/Object;Ljava/lang/Object;)V')
+    setBoolean = JavaMethod('(Ljava/lang/Object;Z)V')
+    setByte = JavaMethod('(Ljava/lang/Object;B)V')
+    setChar = JavaMethod('(Ljava/lang/Object;C)V')
+    setShort = JavaMethod('(Ljava/lang/Object;S)V')
+    setInt = JavaMethod('(Ljava/lang/Object;I)V')
+    setLong = JavaMethod('(Ljava/lang/Object;J)V')
+    setFloat = JavaMethod('(Ljava/lang/Object;F)V')
+    setDouble = JavaMethod('(Ljava/lang/Object;D)V')
 
 
 class Constructor(with_metaclass(MetaJavaClass, JavaClass)):
@@ -155,11 +181,7 @@ def autoclass(clsname):
 
     classDict = {}
 
-    # c = Class.forName(clsname)
     c = find_javaclass(clsname)
-    if c is None:
-        raise Exception('Java class {0} not found'.format(c))
-        return None
 
     constructors = []
     for constructor in c.getConstructors():
