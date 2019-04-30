@@ -7,6 +7,9 @@ cdef jstringy_arg(argtype):
                        'Ljava/lang/CharSequence;',
                        'Ljava/lang/Object;')
 
+cdef well_known_class(klass):
+    return klass != 'java/lang/Object' and klass.startswith('java/lang/')
+
 cdef void release_args(JNIEnv *j_env, tuple definition_args, jvalue *j_args, args) except *:
     # do the conversion from a Python object to Java from a Java definition
     cdef JavaObject jo
@@ -141,12 +144,11 @@ cdef convert_jobject_to_python(JNIEnv *j_env, definition, jobject j_object):
     cdef jclass retclass
     cdef jmethodID retmeth
 
-    # we got a generic object -> lookup for the real name instead.
-    if r == 'java/lang/Object':
+    # First of all try to get real class
+    if definition.startswith('L') and not well_known_class(r):
         r = definition = lookup_java_object_name(j_env, j_object)
-        # print('cjtp:r {0} definition {1}'.format(r, definition))
 
-    if definition[0] == '[':
+    if definition.startswith('['):
         return convert_jarray_to_python(j_env, definition[1:], j_object)
 
     # XXX what about others native type?
